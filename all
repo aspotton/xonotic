@@ -1471,7 +1471,7 @@ case "$cmd" in
 				msg "        |                                                             |"
 				msg "        |                      [ I understand ]                       |"
 				msg "        +-------------------------------------------------------------+"
-				sleep 10
+				#sleep 10
 				# A LOT of build infrastructure is required:
 				# - vorbis-tools
 				# - ImageMagick
@@ -1491,7 +1491,7 @@ case "$cmd" in
 				# - environment variable RELEASETYPE set
 				# - optionally, environment variable RELEASEDATE set
 				#   (YYYYMMDD)
-				exit 1
+				#exit 1
 				;;
 			release)
 				msg "Building a FINISHED RELEASE"
@@ -1549,11 +1549,22 @@ case "$cmd" in
 		}
 		rm -f Xonotic/key_15.d0pk
 		{
+			if [ ! -e "./mapping" ]; then
+				mkdir mapping
+			fi
+
 			verbose cd mapping
-			verbose wget http://www.icculus.org/netradiant/files/netradiant-1.5.0-20110223.tar.bz2
-			verbose wget http://www.icculus.org/netradiant/files/netradiant-1.5.0-20110223-win32-7z.exe
+
+			if [ ! -e "./netradiant-1.5.0-20110223.tar.bz2" ]; then
+				verbose wget http://www.icculus.org/netradiant/files/netradiant-1.5.0-20110223.tar.bz2
+			fi
+
+			if [ ! -e "./netradiant-1.5.0-20110223-win32-7z.exe" ]; then
+				verbose wget http://www.icculus.org/netradiant/files/netradiant-1.5.0-20110223-win32-7z.exe
+			fi
+
 			for X in *-7z.exe; do
-				7za x "$X"
+				7za x -y "$X"
 				rm -f "$X"
 			done
 			# TODO possibly include other tools?
@@ -1576,21 +1587,21 @@ case "$cmd" in
 			esac
 			case " $HOSTS_THAT_ARE_MYSELF " in
 				*\ $host\ *)
-					verbose rsync --delete -zLvaSHP "$srcdir"/ "$buildpath/"
-					verbose rsync --delete -zLvaSHP "$depsdir"/ "$buildpath.deps/"
-					verbose ln -snf "$buildpath.deps" "$buildpath/.deps"
+					#verbose rsync --delete -zLvaSHP "$srcdir"/ "$buildpath/"
+					#verbose rsync --delete -zLvaSHP "$depsdir"/ "$buildpath.deps/"
+					#verbose ln -snf "$buildpath.deps" "$buildpath/.deps"
 					verbose eval make -C "$buildpath" clean $maketargets $makeflags
 					for f in $targetfiles; do
 						verbose mv "$buildpath/${f%:*}" "${f##*:}" || true
 					done
 					;;
 				*)
-					verbose rsync --delete -zLvaSHP "$srcdir"/ "$host:$buildpath/"
-					verbose rsync --delete -zLvaSHP "$depsdir"/ "$host:$buildpath.deps/"
-					verbose ssh "$host" "ln -snf $buildpath.deps $buildpath/.deps && cd $buildpath && nice -`nice` make clean $maketargets $makeflags"
-					for f in $targetfiles; do
-						verbose rsync -zvaSHP "$host:$buildpath/${f%:*}" "${f##*:}" || true
-					done
+					#verbose rsync --delete -zLvaSHP "$srcdir"/ "$host:$buildpath/"
+					#verbose rsync --delete -zLvaSHP "$depsdir"/ "$host:$buildpath.deps/"
+					#verbose ssh "$host" "ln -snf $buildpath.deps $buildpath/.deps && cd $buildpath && nice -`nice` make clean $maketargets $makeflags"
+					#for f in $targetfiles; do
+					#	verbose rsync -zvaSHP "$host:$buildpath/${f%:*}" "${f##*:}" || true
+					#done
 					;;
 			esac
 			# now rebrand the binaries...
@@ -1684,7 +1695,7 @@ case "$cmd" in
 		verbose "$SELF" update-maps
 		;;
 	release-qc)
-		verbose make -C Xonotic/source FTEQCC="../../../fteqcc/fteqcc.linux32" XON_BUILDSYSTEM=1 clean all
+		verbose make -C Xonotic/source FTEQCC="/home/adam/xonotic/fteqcc/fteqcc.linux32" XON_BUILDSYSTEM=1 clean all
 		verbose rm -f Xonotic/source/qcsrc/*/fteqcc.log
 		;;
 	release-buildpk3-transform-raw)
