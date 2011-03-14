@@ -118,7 +118,10 @@ yesno()
 	while [ x"$yesno" != x"y" -a x"$yesno" != x"n" ]; do
 		eval "$2"
 		$ECHO "$1"
-		IFS= read -r yesno
+		if ! IFS= read -r yesno; then
+			yesno=n
+			break
+		fi
 	done
 	[ x"$yesno" = x"y" ]
 }
@@ -245,7 +248,7 @@ listrepos()
 		fi
 		# if we have .no file, skip
 		if [ -f "$d.no" ]; then
-			msg "Repository $d disabled by a .no file, delete $p.no to enable"
+			msg "Repository $d disabled by a .no file, delete $d.no to enable"
 			continue
 		fi
 		# if we have matching pk3, skip
@@ -369,7 +372,7 @@ mkzip()
 
 mkzip0()
 {
-	zip -0y "$@"
+	zip -0ry "$@"
 }
 
 mirrorspeed()
@@ -618,6 +621,11 @@ case "$cmd" in
 			pushurl=`repopushurl "$d"`
 			branch=`repobranch "$d"`
 			if [ -d "$d0/$d" ]; then
+				# if we have .no file, skip
+				if [ -f "$d0/$d.no" ]; then
+					msg "Repository $d disabled by a .no file, delete $d.no to enable; thus, not updated"
+					continue
+				fi
 				if $allow_pull; then
 					enter "$d0/$d" verbose
 					r=`git symbolic-ref HEAD`
@@ -944,7 +952,7 @@ case "$cmd" in
 			fi
 		fi
 
-		enter "$d0/d0_blind_id" verbose
+		verbose cd "$d0/d0_blind_id"
 		if ! $compiled0; then
 			# compilation of crypto library failed
 			# use binaries then, if we can...
@@ -997,20 +1005,20 @@ case "$cmd" in
 			verbose make $MAKEFLAGS
 		fi
 
-		enter "$d0/fteqcc" verbose
+		verbose cd "$d0/fteqcc"
 		if $cleanqcc; then
 			verbose make $MAKEFLAGS clean
 		fi
 		verbose make $MAKEFLAGS
 
-		enter "$d0/data/xonotic-data.pk3dir" verbose
+		verbose cd "$d0/data/xonotic-data.pk3dir"
 		if $cleanqc; then
 			verbose make FTEQCC="../../../../fteqcc/fteqcc.bin" "$@" $MAKEFLAGS clean
 		fi
 		verbose make FTEQCC="../../../../fteqcc/fteqcc.bin" "$@" $MAKEFLAGS
 		# 4 levels up: data, xonotic-data, qcsrc, server
 
-		enter "$d0/darkplaces" verbose
+		verbose cd "$d0/darkplaces"
 		if [ x"$BAD_TARGETS" = x" " ]; then
 			$ECHO "Warning: invalid empty client, default clients will be used."
 		fi
@@ -1559,17 +1567,14 @@ case "$cmd" in
 		}
 		rm -f Xonotic/key_15.d0pk
 		{
-			if [ ! -e "./mapping" ]; then
-				mkdir mapping
-			fi
-
-			verbose cd mapping
+			verbose cd Xonotic/mapping
 			if [ ! -e "./netradiant-1.5.0-20110223.tar.bz2" ]; then
 				verbose wget http://www.icculus.org/netradiant/files/netradiant-1.5.0-20110223.tar.bz2
 			fi
 			if [ ! -e "./netradiant-1.5.0-20110223-win32-7z.exe" ]; then
 				verbose wget http://www.icculus.org/netradiant/files/netradiant-1.5.0-20110223-win32-7z.exe
 			fi
+			
 			for X in *-7z.exe; do
 				7za x -y "$X"
 				rm -f "$X"
@@ -1921,8 +1926,9 @@ case "$cmd" in
 			Xonotic/data/xonotic-$stamp-maps-high.pk3 \
 			Xonotic/data/xonotic-$stamp-music.pk3 \
 			Xonotic/data/xonotic-$stamp-nexcompat-high.pk3
-		verbose mkzip0 Xonotic-$stamp-mappingsuppport.zip \
-			Xonotic/mapping \
+		verbose mkzip Xonotic-$stamp-mappingsupport.zip \
+			Xonotic/mapping
+		verbose mkzip0 Xonotic-$stamp-mappingsupport.zip \
 			Xonotic/data/xonotic-$stamp-maps-low.pk3 # TODO add a Radiant build
 		;;
 	release)
