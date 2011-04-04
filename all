@@ -389,6 +389,7 @@ bestmirror()
 	suf=$1; shift
 
 	if ! { time -p true; } >/dev/null 2>&1; then
+		msg "Cannot do timing in this shell"
 		return 1
 	fi
 
@@ -556,7 +557,6 @@ case "$cmd" in
 		case "$location" in
 			current)
 				if [ x"`git config xonotic.all.mirrorselection 2>/dev/null || true`" != x"done" ]; then
-					git config xonotic.all.mirrorselection done
 					location=best
 				fi
 				;;
@@ -574,7 +574,7 @@ case "$cmd" in
 				case "$newbase" in
 					*\ *)
 						if location=`bestmirror $newbase"xonotic.git" de us nl:'*6/5'`; then # 20% malus to the NL server to not overload it too much
-							:
+							git config xonotic.all.mirrorselection done
 						else
 							location=current
 						fi
@@ -868,10 +868,10 @@ case "$cmd" in
 				-r|-p)
 					case "$1" in
 						-p)
-							debug=release
+							debug=profile
 							;;
 						-r)
-							debug=profile
+							debug=release
 							;;
 					esac
 					export CC="$CC -g"
