@@ -277,6 +277,12 @@ fi
 cmd=$1
 shift
 
+case "$cmd" in
+	release-*)
+		export LC_ALL=C
+		;;
+esac
+
 fix_upstream_rebase()
 {
 	if [ -z "$r_me" ] || [ -z "$r_other" ]; then
