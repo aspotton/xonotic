@@ -2,14 +2,31 @@
 # vim: filetype=zsh
 
 if [ -e /etc/redhat-release ]; then #fedora/redhat
-	MINGWGCC="i686-pc-mingw32-gcc"
-	MINGWGPP="i686-pc-mingw32-g++"
-	MINGWWINDRES="i686-pc-mingw32-windres"
+	MINGWGCC=`/usr/bin/which i686-pc-mingw32-gcc`
+	MINGWGPP=`/usr/bin/which i686-pc-mingw32-g++`
+	MINGWWINDRES=`/usr/bin/which i686-pc-mingw32-windres`
 else #assume debian-based distro
-	MINGWGCC="i586-mingw32msvc-gcc"
-	MINGWGPP="i586-mingw32msvc-g++"
-	MINGWWINDRES="i586-mingw32msvc-windres"
+	MINGWGCC=`/usr/bin/which i586-mingw32msvc-gcc`
+	MINGWGPP=`/usr/bin/which i586-mingw32msvc-g++`
+	MINGWWINDRES=`/usr/bin/which i586-mingw32msvc-windres`
 fi
+
+#echo "MINGWGCC=$MINGWGCC"
+#echo "MINGWGPP=$MINGWGPP"
+#echo "MINGWWINDRES=$MINGWWINDRES"
+
+if [ -z $MINGWGCC ]; then 
+	echo "Missing MINGWGCC"
+	exit 1
+elif [ -z $MINGWGPP ]; then
+	echo "Missing MINGWGPP"
+	exit 2
+elif [ -z $MINGWWINDRES ]; then
+	echo "Missing MINGWWINDRES"
+	exit 3
+fi 
+
+#exit 0
 
 set -e
 if [ -n "$ZSH_VERSION" ]; then
