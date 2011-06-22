@@ -277,6 +277,59 @@ fi
 cmd=$1
 shift
 
+case "$cmd" in
+	release|release-*)
+		export LC_ALL=C
+
+		release_args="$cmd $*"
+		msg "*** $release_args: start"
+		release_starttime=`date +%s`
+		release_end()
+		{
+			release_endtime=`date +%s`
+			release_deltatime=$(($release_endtime - $release_starttime))
+			msg "*** $release_args: $release_deltatime seconds"
+		}
+		trap release_end EXIT
+		release_tempstarttime=$release_starttime
+		release_timereport()
+		{
+			release_endtime=`date +%s` # RELEASE NOW!!!
+			if [ -n "$*" ]; then
+				release_deltatime=$(($release_endtime - $release_tempstarttime))
+				msg "**** $release_args: $*: $release_deltatime seconds"
+			fi
+			release_tempstarttime=$release_endtime
+		}
+		release_git_extract_dir()
+		{
+			release_src=$1; shift
+			release_dst=$1; shift
+			# try to create a hardlink
+			if ln -f "$release_src/.git/HEAD" "$release_dst/.hardlink-test"; then
+				rm -f "$release_dst/.hardlink-test"
+				{
+					verbose cd "$release_src"
+					git ls-files HEAD -- "$@"
+				} | {
+					while IFS= read -r F; do
+						case "$F" in */*) mkdir -p "$release_dst/${F%/*}" ;; esac
+						verbose ln -f "$release_src/$F" "$release_dst/$F"
+					done
+				}
+			else
+				{
+					verbose cd "$release_src"
+					verbose git archive --format=tar HEAD -- "$@"
+				} | {
+					verbose cd "$release_dst"
+					verbose tar xvf -
+				}
+			fi
+		}
+		;;
+esac
+
 fix_upstream_rebase()
 {
 	if [ -z "$r_me" ] || [ -z "$r_other" ]; then
@@ -359,20 +412,51 @@ fix_git_config()
 	verbose git config filter.mapclean.smudge "cat"
 }
 
-mkzip()
+mkzipr()
 {
-	archive=$1
-	shift
+	archive=$1; shift
+	case "$RELEASETYPE" in
+		release)
+			sevenzipflags=-mx=9
+			zipflags=-9
+			;;
+		*)
+			sevenzipflags=-mx=1
+			zipflags=-1
+			;;
+	esac
+	find "$@" -exec touch -d "2001-01-01 01:01:01 +0000" {} \+ # ugly hack to make the pk3 files rsync-friendly
 	ziplist=`mktemp`
 	find "$@" -xtype f \( -executable -or -type l \) -print > "$ziplist"
-	7za a -tzip -mx=9 -x@"$ziplist" "$archive" "$@" || true
-	zip         -9y   -@<"$ziplist" "$archive"      || true
+	7za a -tzip $sevenzipflags -x@"$ziplist" "$archive" "$@" || true
+	zip         $zipflags -y   -@<"$ziplist" "$archive"      || true
+	rm -f "$ziplist"
+}
+
+mkzip()
+{
+	archive=$1; shift
+	case "$RELEASETYPE" in
+		release)
+			sevenzipflags=-mx=9
+			zipflags=-9
+			;;
+		*)
+			sevenzipflags=-mx=1
+			zipflags=-1
+			;;
+	esac
+	ziplist=`mktemp`
+	find "$@" -xtype f \( -executable -or -type l \) -print > "$ziplist"
+	7za a -tzip $sevenzipflags -x@"$ziplist" "$archive" "$@" || true
+	zip         $zipflags -y   -@<"$ziplist" "$archive"      || true
 	rm -f "$ziplist"
 }
 
 mkzip0()
 {
-	zip -0ry "$@"
+	archive=$1; shift
+	zip -0ry "$archive" "$@"
 }
 
 mirrorspeed()
@@ -389,6 +473,7 @@ bestmirror()
 	suf=$1; shift
 
 	if ! { time -p true; } >/dev/null 2>&1; then
+		msg "Cannot do timing in this shell"
 		return 1
 	fi
 
@@ -556,7 +641,6 @@ case "$cmd" in
 		case "$location" in
 			current)
 				if [ x"`git config xonotic.all.mirrorselection 2>/dev/null || true`" != x"done" ]; then
-					git config xonotic.all.mirrorselection done
 					location=best
 				fi
 				;;
@@ -574,7 +658,7 @@ case "$cmd" in
 				case "$newbase" in
 					*\ *)
 						if location=`bestmirror $newbase"xonotic.git" de us nl:'*6/5'`; then # 20% malus to the NL server to not overload it too much
-							:
+							git config xonotic.all.mirrorselection done
 						else
 							location=current
 						fi
@@ -697,10 +781,8 @@ case "$cmd" in
 			else
 				b=`repobranch "$d"`
 				if git rev-parse "refs/heads/$b" >/dev/null 2>&1; then
-					exists=true
 					verbose git checkout $checkoutflags "$b"
 				elif git rev-parse "refs/remotes/$remote/$b" >/dev/null 2>&1; then
-					exists=true
 					verbose git checkout $checkoutflags --track -b "$b" "$remote/$b"
 				else
 					$ECHO "WTF? Not even branch $b doesn't exist in $d"
@@ -865,8 +947,15 @@ case "$cmd" in
 					cleanqc=true
 					shift
 					;;
-				-r)
-					debug=release
+				-r|-p)
+					case "$1" in
+						-p)
+							debug=profile
+							;;
+						-r)
+							debug=release
+							;;
+					esac
 					export CC="$CC -g"
 					case "`$CC -dumpversion`" in
 						[5-9]*|[1-9][0-9]*|4.[3-9]*|4.[1-9][0-9]*)
@@ -898,7 +987,7 @@ case "$cmd" in
 					TARGETS="sv-$debug sdl-$debug"
 					;;
 			esac
-			export CC="$CC -fno-reorder-blocks -I$PWD/misc/buildfiles/osx/Xonotic-SDL.app/Contents/Frameworks/SDL.framework/Headers -F$PWD/misc/buildfiles/osx/Xonotic-SDL.app/Contents/Frameworks"
+			export CC="$CC -fno-reorder-blocks -I$PWD/misc/buildfiles/osx/Xonotic.app/Contents/Frameworks/SDL.framework/Headers -F$PWD/misc/buildfiles/osx/Xonotic.app/Contents/Frameworks"
 		else
 			TARGETS="sv-$debug cl-$debug sdl-$debug"
 		fi
@@ -1039,8 +1128,8 @@ case "$cmd" in
 			client=
 			export PATH="$d0/misc/buildfiles/win32:$d0/d0_blind_id/.libs:$PATH"
 		elif [ x"`uname`" = x"Darwin" ]; then
-			export DYLD_LIBRARY_PATH="$d0/misc/buildfiles/osx/Xonotic-SDL.app/Contents/MacOS:$d0/d0_blind_id/.libs"
-			export DYLD_FRAMEWORK_PATH="$d0/misc/buildfiles/osx/Xonotic-SDL.app/Contents/Frameworks"
+			export DYLD_LIBRARY_PATH="$d0/misc/buildfiles/osx/Xonotic.app/Contents/MacOS:$d0/d0_blind_id/.libs"
+			export DYLD_FRAMEWORK_PATH="$d0/misc/buildfiles/osx/Xonotic.app/Contents/Frameworks"
 			client=-sdl
 		else
 			export LD_LIBRARY_PATH="$d0/d0_blind_id/.libs"
@@ -1064,7 +1153,7 @@ case "$cmd" in
 				exit 1
 			fi
 		fi
-		set -- "darkplaces/darkplaces$client" -xonotic -mygames "$@"
+		set -- "darkplaces/darkplaces$client" -xonotic "$@"
 
 		# if pulseaudio is running: USE IT
 		if [ -z "$SDL_AUDIODRIVER" ] && ! [ -n "$WE_HATE_OUR_USERS" ] && ! [ x"`uname`" = x"Darwin" ]; then
@@ -1525,46 +1614,26 @@ case "$cmd" in
 		else
 			verbose date +%Y%m%d > Xonotic/stamp.txt
 		fi
-		verbose git archive --format=tar HEAD -- Docs misc server xonotic-linux-glx.sh xonotic-linux-sdl.sh misc/buildfiles key_0.d0pk | {
+		release_git_extract_dir "." "Xonotic" Docs misc server xonotic-linux-glx.sh xonotic-linux-sdl.sh misc/buildfiles key_0.d0pk COPYING GPL-2 GPL-3
+		(
 			verbose cd Xonotic
 			verbose mkdir data fteqcc source source/darkplaces source/fteqcc source/d0_blind_id mapping
-			verbose tar xvf -
 			verbose rm -rf misc/builddeps
-			verbose mv misc/buildfiles/win32/* . || true
+			verbose mv misc/buildfiles/win32 bin32 || true
+			verbose mv bin32/SDL.dll . || true
 			verbose mv misc/buildfiles/win64 bin64 || true
 			verbose mv misc/buildfiles/osx/* . || true
 			verbose rm -rf misc/buildfiles
 			verbose rm -rf misc/pki
-		}
-		{
-			verbose cd darkplaces
-			verbose git archive --format=tar HEAD
-		} | {
-			verbose cd Xonotic/source/darkplaces
-			verbose tar xvf -
-		}
-		{
-			verbose cd fteqcc
-			verbose git archive --format=tar HEAD
-		} | {
-			verbose cd Xonotic/source/fteqcc
-			verbose tar xvf -
-		}
-		{
-			verbose cd data/xonotic-data.pk3dir
-			verbose git archive --format=tar HEAD -- qcsrc Makefile
-		} | {
-			verbose cd Xonotic/source
-			verbose tar xvf -
-		}
-		{
-			verbose cd d0_blind_id
-			verbose git archive --format=tar HEAD
-		} | {
+		)
+		release_git_extract_dir "darkplaces" "Xonotic/source/darkplaces" .
+		release_git_extract_dir "fteqcc" "Xonotic/source/fteqcc" .
+		release_git_extract_dir "data/xonotic-data.pk3dir" "Xonotic/source" qcsrc Makefile
+		release_git_extract_dir "d0_blind_id" "Xonotic/source/d0_blind_id" .
+		(
 			verbose cd Xonotic/source/d0_blind_id
-			verbose tar xvf -
 			verbose sh autogen.sh
-		}
+		)
 		rm -f Xonotic/key_15.d0pk
 		{
 			verbose cd Xonotic/mapping
@@ -1622,15 +1691,6 @@ case "$cmd" in
 				case "${f##*:}" in
 					Xonotic/xonotic*.exe)
 						verbose "$d0/misc/tools/change-icon-of-exe.sh" "$d0/misc/logos/icons_ico/xonotic.ico" "${f##*:}"
-						(
-							d=`mktemp -d -t rebrand.XXXXXX`
-							cd "$d"
-							$ECHO "-mygames" > darkplaces.opt
-							zip -9r darkplaces.zip darkplaces.opt
-							cat darkplaces.zip
-							cd "$d0"
-							rm -rf "$d"
-						) >> "${f##*:}"
 						;;
 				esac
 			done
@@ -1650,44 +1710,40 @@ case "$cmd" in
 		;;
 	release-engine-win32)
 		verbose "$SELF" release-compile win32 \
-			"STRIP=: DP_MAKE_TARGET=mingw CC=\"$MINGWGCC -march=i686 -g -Wl,--dynamicbase -Wl,--nxcompat -I.deps/include -L.deps/lib -DUSE_WSPIAPI_H -DSUPPORTIPV6\" WINDRES=\"$MINGWWINDRES\" SDL_CONFIG=\".deps/bin/sdl-config\" LIB_JPEG= CFLAGS_LIBJPEG= WIN32RELEASE=1 D3D=0" \
+			"STRIP=: DP_MAKE_TARGET=mingw CC=\"$MINGWGCC -march=i686 -g1 -Wl,--dynamicbase -Wl,--nxcompat -I.deps/include -L.deps/lib -DUSE_WSPIAPI_H -DSUPPORTIPV6\" WINDRES=\"$MINGWWINDRES\" SDL_CONFIG=\".deps/bin/sdl-config\" LIB_JPEG= CFLAGS_LIBJPEG= WIN32RELEASE=1 D3D=0" \
 			win 'fteqcc.exe:Xonotic/fteqcc/fteqcc.exe' \
 			'' ''
 		verbose "$SELF" release-compile win32 \
-			"STRIP=: DP_MAKE_TARGET=mingw CC=\"$MINGWGPP -g -Wl,--dynamicbase -Wl,--nxcompat -I.deps/include -L.deps/lib -DUSE_WSPIAPI_H -DSUPPORTIPV6\" WINDRES=\"$MINGWWINDRES\" SDL_CONFIG=\".deps/bin/sdl-config\" LIB_JPEG= CFLAGS_LIBJPEG= WIN32RELEASE=1 D3D=1" \
+			"STRIP=: DP_MAKE_TARGET=mingw CC="$MINGWGPP -g1 -Wl,--dynamicbase -Wl,--nxcompat -I.deps/include -L.deps/lib -DUSE_WSPIAPI_H -DSUPPORTIPV6\" WINDRES=\"$MINGWWINDRES\" SDL_CONFIG=\".deps/bin/sdl-config\" LIB_JPEG= CFLAGS_LIBJPEG= WIN32RELEASE=1 D3D=1" \
 			'' '' \
 			release 'darkplaces.exe:Xonotic/xonotic.exe darkplaces-sdl.exe:Xonotic/xonotic-sdl.exe darkplaces-dedicated.exe:Xonotic/xonotic-dedicated.exe'
 		;;
 	release-engine-win64)
 		verbose "$SELF" release-compile win64 \
-			'STRIP=: DP_MAKE_TARGET=mingw CC="amd64-mingw32msvc-gcc -g -Wl,--dynamicbase -Wl,--nxcompat -I.deps/include -L.deps/lib -DSUPPORTIPV6" WINDRES="amd64-mingw32msvc-windres" SDL_CONFIG=".deps/bin/sdl-config" LIB_JPEG= CFLAGS_LIBJPEG= WIN64RELEASE=1 D3D=0' \
+			'STRIP=: DP_MAKE_TARGET=mingw CC="amd64-mingw32msvc-gcc -g1 -Wl,--dynamicbase -Wl,--nxcompat -I.deps/include -L.deps/lib -DSUPPORTIPV6" WINDRES="amd64-mingw32msvc-windres" SDL_CONFIG=".deps/bin/sdl-config" LIB_JPEG= CFLAGS_LIBJPEG= WIN64RELEASE=1 D3D=0' \
 			win 'fteqcc.exe:Xonotic/fteqcc/fteqcc-x64.exe' \
 			'sv-release sdl-release' 'darkplaces-sdl.exe:Xonotic/xonotic-x64-sdl.exe darkplaces-dedicated.exe:Xonotic/xonotic-x64-dedicated.exe'
 		verbose "$SELF" release-compile win64 \
-			'STRIP=: DP_MAKE_TARGET=mingw CC="x86_64-w64-mingw32-g++ -g -Wl,--dynamicbase -Wl,--nxcompat -I.deps/include -L.deps/lib -DSUPPORTIPV6" WINDRES="x86_64-w64-mingw32-windres" SDL_CONFIG=".deps/bin/sdl-config" LIB_JPEG= CFLAGS_LIBJPEG= WIN64RELEASE=1 D3D=1' \
+			'STRIP=: DP_MAKE_TARGET=mingw CC="x86_64-w64-mingw32-g++ -g1 -Wl,--dynamicbase -Wl,--nxcompat -I.deps/include -L.deps/lib -DSUPPORTIPV6" WINDRES="x86_64-w64-mingw32-windres" SDL_CONFIG=".deps/bin/sdl-config" LIB_JPEG= CFLAGS_LIBJPEG= WIN64RELEASE=1 D3D=1' \
 			'' '' \
 			cl-release 'darkplaces.exe:Xonotic/xonotic-x64.exe'
 		;;
 	release-engine-osx)
 		# gcc on OSX is buggy, needs -fno-reorder-blocks for a release build to succeed
 		verbose "$SELF" release-compile osx \
-			'STRIP=: CC="gcc -g -arch i386 -arch ppc -arch x86_64 -isysroot /Developer/SDKs/MacOSX10.5.sdk -mmacosx-version-min=10.4 -I.deps/include -L.deps/lib -fno-reorder-blocks -DSUPPORTIPV6"' \
+			'STRIP=: CC="gcc -g1 -arch i386 -arch ppc -arch x86_64 -isysroot /Developer/SDKs/MacOSX10.5.sdk -mmacosx-version-min=10.4 -I.deps/include -L.deps/lib -fno-reorder-blocks -DSUPPORTIPV6"' \
 			all 'fteqcc.bin:Xonotic/fteqcc/fteqcc.osx' \
-			'sv-release sdl-release' 'darkplaces-sdl:Xonotic/Xonotic-SDL.app/Contents/MacOS/xonotic-osx-sdl-bin darkplaces-dedicated:Xonotic/xonotic-osx-dedicated'
-		verbose "$SELF" release-compile osx \
-			'STRIP=: CC="gcc -g -arch i386 -arch ppc -isysroot /Developer/SDKs/MacOSX10.5.sdk -mmacosx-version-min=10.4 -I.deps/include -L.deps/lib -fno-reorder-blocks -DSUPPORTIPV6"' \
-			'' '' \
-			'cl-release' 'darkplaces-agl:Xonotic/Xonotic.app/Contents/MacOS/xonotic-osx-agl-bin'
+			'sv-release sdl-release' 'darkplaces-sdl:Xonotic/Xonotic.app/Contents/MacOS/xonotic-osx-sdl-bin darkplaces-dedicated:Xonotic/xonotic-osx-dedicated'
 		;;
 	release-engine-linux32)
 		verbose "$SELF" release-compile linux32 \
-			'STRIP=: CC="gcc -m32 -march=i686 -g -I.deps/include -L.deps/lib -DSUPPORTIPV6" DP_MODPLUG_STATIC_LIBDIR=.deps/lib LIB_JPEG=.deps/lib/libjpeg.a DP_CRYPTO_STATIC_LIBDIR=.deps/lib' \
+			'STRIP=: CC="gcc -m32 -march=i686 -g1 -I.deps/include -L.deps/lib -DSUPPORTIPV6" DP_MODPLUG_STATIC_LIBDIR=.deps/lib LIB_JPEG=.deps/lib/libjpeg.a DP_CRYPTO_STATIC_LIBDIR=.deps/lib' \
 			all 'fteqcc.bin:Xonotic/fteqcc/fteqcc.linux32' \
 			release 'darkplaces-glx:Xonotic/xonotic-linux32-glx darkplaces-sdl:Xonotic/xonotic-linux32-sdl darkplaces-dedicated:Xonotic/xonotic-linux32-dedicated'
 		;;
 	release-engine-linux64)
 		verbose "$SELF" release-compile linux64 \
-			'STRIP=: CC="gcc -m64 -g -I.deps/include -L.deps/lib -DSUPPORTIPV6" DP_MODPLUG_STATIC_LIBDIR=.deps/lib LIB_JPEG=.deps/lib/libjpeg.a DP_CRYPTO_STATIC_LIBDIR=.deps/lib' \
+			'STRIP=: CC="gcc -m64 -g1 -I.deps/include -L.deps/lib -DSUPPORTIPV6" DP_MODPLUG_STATIC_LIBDIR=.deps/lib LIB_JPEG=.deps/lib/libjpeg.a DP_CRYPTO_STATIC_LIBDIR=.deps/lib' \
 			all 'fteqcc.bin:Xonotic/fteqcc/fteqcc.linux64' \
 			release 'darkplaces-glx:Xonotic/xonotic-linux64-glx darkplaces-sdl:Xonotic/xonotic-linux64-sdl darkplaces-dedicated:Xonotic/xonotic-linux64-dedicated'
 		;;
@@ -1782,15 +1838,12 @@ case "$cmd" in
 				dst="$PWD/$dst"
 				;;
 		esac
+		release_timereport
 		verbose rm -rf Xonotic/temp
+		release_timereport "deleted temp directory"
 		verbose mkdir -p Xonotic/temp
-		{
-			verbose cd "$src"
-			verbose git archive --format=tar HEAD
-		} | {
-			verbose cd Xonotic/temp
-			verbose tar xvf -
-		}
+		release_git_extract_dir "$src" "Xonotic/temp" .
+		release_timereport "extracted data"
 		verbose cd Xonotic/temp
 		if [ x"$src" = x"data/xonotic-data.pk3dir" ]; then
 			verbose cp ../source/progs.dat .
@@ -1809,11 +1862,22 @@ case "$cmd" in
 					versionstr="$versionstr$RELEASETYPE"
 					;;
 			esac
-			verbose sed -i "
-				s/^set g_xonoticversion [^ ]* /set g_xonoticversion $versionstr /;
-				s/^gameversion_min [0-9]*/gameversion_min $(( ($gv / 100) * 100 - 100 ))/;
-				s/^gameversion_max [0-9]*/gameversion_max $(( ($gv / 100) * 100 + 199 ))/;
-			" defaultXonotic.cfg
+			if [ $gv -lt 900 ]; then
+				# pre-1.0: compatible with any other pre-1.0
+				verbose sed "
+					s/^set g_xonoticversion [^ ]* /set g_xonoticversion $versionstr /;
+					s/^gameversion_min [0-9]*/gameversion_min     0/;
+					s/^gameversion_max [0-9]*/gameversion_max  9999/;
+				" < defaultXonotic.cfg > defaultXonotic.cfg.new
+			else
+				# >= 1.0
+				verbose sed "
+					s/^set g_xonoticversion [^ ]* /set g_xonoticversion $versionstr /;
+					s/^gameversion_min [0-9]*/gameversion_min $(( ($gv / 100) * 100 - 100 ))/;
+					s/^gameversion_max [0-9]*/gameversion_max $(( ($gv / 100) * 100 + 199 ))/;
+				" < defaultXonotic.cfg > defaultXonotic.cfg.new
+			fi
+			mv defaultXonotic.cfg.new defaultXonotic.cfg
 			case "$RELEASETYPE" in
 				release)
 					echo "" >> defaultXonotic.cfg
@@ -1823,6 +1887,7 @@ case "$cmd" in
 			esac
 			(
 				verbose cd gfx/menu/luminos
+				verbose rm -f background_l2.tga background_ingame_l2.tga
 				verbose cp "$d0"/mediasource/gfx/menu/luminos_versionbuilder/background_l2.svg .
 				verbose "$d0"/mediasource/gfx/menu/luminos_versionbuilder/versionbuilder "$versionstr"
 				verbose rm background_l2.svg
@@ -1837,10 +1902,14 @@ case "$cmd" in
 			done
 		fi
 		verbose export git_src_repo="$d0/$src" # skip hash-object
+		release_timereport "processed data"
 		verbose "$SELF" release-buildpk3-transform-$transform "Xonotic/temp"
-		verbose mkzip "../../$dst" *
+		release_timereport "transformed data"
+		verbose mkzipr "../../$dst" *
+		release_timereport "zipped data"
 		verbose cd ../..
 		verbose rm -rf Xonotic/temp
+		release_timereport "deleted temp directory again"
 		;;
 	release-buildpk3s)
 		stamp=`cat Xonotic/stamp.txt`
@@ -1887,17 +1956,19 @@ case "$cmd" in
 		crypto_libs=`find Xonotic -name \*d0_rijndael\*.so -o -name \*d0_rijndael\*.dylib -o -name \*d0_rijndael\*.dll -o -name \*d0_rijndael\*.c`
 		if [ -n "$crypto_libs" ]; then
 			verbose mkzip Xonotic-$stamp-crypto.zip \
-				$crypto_libs
+				$crypto_libs \
+				Xonotic/COPYING Xonotic/GPL-2 Xonotic/GPL-3
 			rm -f $crypto_libs
 		fi
 		# build the archives
 		verbose mkzip Xonotic-$stamp-engine.zip \
-			Xonotic/*.dll \
+			Xonotic/bin32/*.dll \
 			Xonotic/bin64/*.dll \
 			Xonotic/*.app \
 			Xonotic/xonotic-* \
 			Xonotic/xonotic.exe \
-			Xonotic/source/darkplaces/
+			Xonotic/source/darkplaces/ \
+			Xonotic/COPYING Xonotic/GPL-2 Xonotic/GPL-3
 		verbose cp Xonotic-$stamp-engine.zip Xonotic-$stamp-common.zip
 		verbose mkzip Xonotic-$stamp-common.zip \
 			Xonotic/source/fteqcc/ \
@@ -1951,7 +2022,7 @@ case "$cmd" in
 		$ECHO "  $SELF checkout|switch <remote>/<branch>"
 		$ECHO "  $SELF clean [-m] [-f | -fu | -fU] [-r] [-D]"
 		$ECHO "  $SELF clean --reclone"
-		$ECHO "  $SELF compile [-c] [-r] [-0]"
+		$ECHO "  $SELF compile [-c] [-r|-p] [-0]"
 		$ECHO "  $SELF each|foreach [-k] command..."
 		$ECHO "  $SELF fix_upstream_rebase"
 		$ECHO "  $SELF keygen"
