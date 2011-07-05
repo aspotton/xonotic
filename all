@@ -1654,11 +1654,11 @@ case "$cmd" in
 		rm -f Xonotic/key_15.d0pk
 		{
 			verbose cd Xonotic/mapping
-			if [ ! -e "./netradiant-1.5.0-20110223.tar.bz2" ]; then
-				verbose wget http://www.icculus.org/netradiant/files/netradiant-1.5.0-20110223.tar.bz2
+			if [ ! -e "./netradiant-1.5.0-20110701.tar.bz2" ]; then
+				verbose wget http://www.icculus.org/netradiant/files/netradiant-1.5.0-20110701.tar.bz2
 			fi
-			if [ ! -e "./netradiant-1.5.0-20110223-win32-7z.exe" ]; then
-				verbose wget http://www.icculus.org/netradiant/files/netradiant-1.5.0-20110223-win32-7z.exe
+			if [ ! -e "./netradiant-1.5.0-20110701-win32-7z.exe" ]; then
+				verbose wget http://www.icculus.org/netradiant/files/netradiant-1.5.0-20110701-win32-7z.exe
 			fi
 			
 			for X in *-7z.exe; do
@@ -1979,6 +1979,7 @@ case "$cmd" in
 		fi
 		# build the archives
 		verbose mkzip Xonotic-$stamp-engine.zip \
+			Xonotic/*.dll \
 			Xonotic/bin32/*.dll \
 			Xonotic/bin64/*.dll \
 			Xonotic/*.app \
@@ -2009,6 +2010,8 @@ case "$cmd" in
 			Xonotic/data/xonotic-$stamp-maps-low.pk3 \
 			Xonotic/data/xonotic-$stamp-music-low.pk3
 		verbose mv Xonotic-$stamp-common.zip Xonotic-$stamp-high.zip
+		verbose mkzip Xonotic-$stamp-high.zip \
+			Xonotic/mapping
 		verbose mkzip0 Xonotic-$stamp-high.zip \
 			Xonotic/data/xonotic-$stamp-data-high.pk3 \
 			Xonotic/data/xonotic-$stamp-maps-high.pk3 \
@@ -2017,7 +2020,7 @@ case "$cmd" in
 		verbose mkzip Xonotic-$stamp-mappingsupport.zip \
 			Xonotic/mapping
 		verbose mkzip0 Xonotic-$stamp-mappingsupport.zip \
-			Xonotic/data/xonotic-$stamp-maps-low.pk3 # TODO add a Radiant build
+			Xonotic/data/xonotic-$stamp-maps-low.pk3
 		;;
 	release)
 		verbose "$SELF" release-prepare
@@ -2039,13 +2042,12 @@ case "$cmd" in
 		$ECHO "  $SELF checkout|switch <remote>/<branch>"
 		$ECHO "  $SELF clean [-m] [-f | -fu | -fU] [-r] [-D]"
 		$ECHO "  $SELF clean --reclone"
-		$ECHO "  $SELF compile [-c] [-r|-p] [-0]"
+		$ECHO "  $SELF compile [-c] [-r|-p] [-0] [sdl|glx|wgl|agl|dedicated]"
 		$ECHO "  $SELF each|foreach [-k] command..."
 		$ECHO "  $SELF fix_upstream_rebase"
 		$ECHO "  $SELF keygen"
 		$ECHO "  $SELF merge"
 		$ECHO "  $SELF push|commit [-s]"
-		$ECHO "  $SELF release"
 		$ECHO "  $SELF restore-patches"
 		$ECHO "  $SELF run [sdl|glx|wgl|agl|dedicated] options..."
 		$ECHO "  $SELF save-patches"
