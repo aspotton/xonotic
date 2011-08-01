@@ -13,6 +13,9 @@ set -e
 : ${ogg_qual:=1}
 : ${del_src:=false}
 : ${git_src_repo:=}
+: ${dds_noalpha:=dxt1}
+: ${dds_prealpha:=dxt2 dxt4}
+: ${dds_sepalpha:=dxt3 dxt5}
 
 selfprofile_t0=`date +%s`
 selfprofile_step=init
@@ -140,13 +143,62 @@ cached()
 	selfprofile convert_finished
 }
 
+pickdxta()
+{
+	pd_t=$1; shift
+	pd_d=$1; shift
+	pd_i=$1; shift
+	pd_o=$1; shift
+	for pd_dd in $pd_d; do
+		if [ -f "$pd_o" ]; then
+			"$meprefix"compress-texture "$pd_t" "$pd_dd" "$pd_i" "$pd_o".tmp.dds "$@"
+			pd_psnr_tmp=`compare -channel alpha -metric PSNR "$pd_i" "$pd_o".tmp.dds NULL: 2>&1`
+			case "$pd_psnr_tmp" in
+				[0-9.]*)
+					;;
+				*)
+					pd_psnr_tmp=999.9
+					;;
+			esac
+			echo >&2 "$pd_dd: $pd_psnr_tmp dB"
+			pd_psnr_diff=`echo "($pd_psnr_tmp) - ($pd_psnr)" | bc -l`
+			case "$pd_psnr_diff" in
+				-*|0)
+					# tmp is smaller or equal
+					# smaller PSNR is worse
+					# no action
+					;;
+				*)
+					# tmp is larger
+					# larger PSNR is better
+					pd_psnr=$pd_psnr_tmp
+					mv "$pd_o".tmp.dds "$pd_o"
+					echo >&2 "PICKED (better)"
+					;;
+			esac
+		else
+			"$meprefix"compress-texture "$pd_t" "$pd_dd" "$pd_i" "$pd_o" "$@"
+			pd_psnr=`compare -channel alpha -metric PSNR "$pd_i" "$pd_o" NULL: 2>&1`
+			case "$pd_psnr" in
+				[0-9.]*)
+					;;
+				*)
+					pd_psnr=999.9
+					;;
+			esac
+			echo >&2 "$pd_dd: $pd_psnr dB"
+			echo >&2 "PICKED (first)"
+		fi
+	done
+}
+
 reduce_jpeg2_dds()
 {
 	i=$1; shift
 	ia=$1; shift
 	o=$1; shift; shift 
 	convert "$i" "$ia" -compose CopyOpacity -composite "$tmpdir/x.tga" && \
-	"$meprefix"compress-texture "$dds_tool" dxt5 "$tmpdir/x.tga" "$o" $1
+	pickdxta "$dds_tool" "$dds_sepalpha" "$tmpdir/x.tga" "$o" $1
 }
 
 reduce_jpeg2_dds_premul()
@@ -155,7 +207,7 @@ reduce_jpeg2_dds_premul()
 	ia=$1; shift
 	o=$1; shift; shift 
 	convert "$i" "$ia" -compose CopyOpacity -composite "$tmpdir/x.tga" && \
-	"$meprefix"compress-texture "$dds_tool" dxt4 "$tmpdir/x.tga" "$o" $1
+	pickdxta "$dds_tool" "$dds_prealpha" "$tmpdir/x.tga" "$o" $1
 }
 
 reduce_jpeg2_jpeg2()
@@ -215,7 +267,7 @@ reduce_rgba_dds()
 	i=$1; shift; shift
 	o=$1; shift; shift
 	convert "$i" "$tmpdir/x.tga" && \
-	"$meprefix"compress-texture "$dds_tool" dxt5 "$tmpdir/x.tga" "$o" $1
+	pickdxta "$dds_tool" "$dds_sepalpha" "$tmpdir/x.tga" "$o" $1
 }
 
 reduce_rgba_dds_premul()
@@ -223,7 +275,7 @@ reduce_rgba_dds_premul()
 	i=$1; shift; shift
 	o=$1; shift; shift
 	convert "$i" "$tmpdir/x.tga" && \
-	"$meprefix"compress-texture "$dds_tool" dxt4 "$tmpdir/x.tga" "$o" $1
+	pickdxta "$dds_tool" "$dds_prealpha" "$tmpdir/x.tga" "$o" $1
 }
 
 reduce_rgba_jpeg2()
@@ -248,7 +300,7 @@ reduce_rgb_dds()
 	i=$1; shift; shift
 	o=$1; shift; shift
 	convert "$i" "$tmpdir/x.tga" && \
-	"$meprefix"compress-texture "$dds_tool" dxt1 "$tmpdir/x.tga" "$o" $1
+	"$meprefix"compress-texture "$dds_tool" "$dds_noalpha" "$tmpdir/x.tga" "$o" $1
 }
 
 reduce_rgb_jpeg()
@@ -302,6 +354,20 @@ for F in "$@"; do
 			# we can't DDS compress the 2D textures, sorry
 			# but JPEG is still fine
 			will_dds=false
+			;;
+	esac
+
+	# configure S2TC
+	case "$f" in
+		*_norm)
+			export S2TC_COLORDIST_MODE=NORMALMAP
+			export S2TC_RANDOM_COLORS=256
+			export S2TC_REFINE_COLORS=LOOP
+			;;
+		*)
+			export S2TC_COLORDIST_MODE=SRGB_MIXED
+			export S2TC_RANDOM_COLORS=64
+			export S2TC_REFINE_COLORS=LOOP
 			;;
 	esac
 
